@@ -18,7 +18,7 @@ from sklearn.preprocessing import StandardScaler
 
 RANDOM_SEED = 42
 TEST_SIZE = 0.2
-EPSILON = 0.1
+MAX_EPSILON = 0.1
 TOP_K_CANDIDATES = range(1, 21)
 
 
@@ -296,7 +296,7 @@ def run_privacy_utility(dataset_key: str, output_dir: Path, data_root: Path | No
         ranking.to_csv(ranking_dir / f"{name.lower().replace('-', '_')}_ranking.csv", index=False)
 
     ranges = feature_ranges(split["X_train"])
-    uniform_scales = ranges / EPSILON
+    uniform_scales = ranges / MAX_EPSILON
     _, _, uniform_abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED)
     rows = [evaluate(split["X_train"], split["X_test"], split, "No Privacy")]
 

@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover - optional runtime fallback is logged.
 
 
 RANDOM_SEED = 42
-EPSILON = 0.1
+MAX_EPSILON = 0.1
 TOP_K = 5
 MAX_TUNED_K = 20
 TEST_SIZE = 0.2
@@ -282,7 +282,7 @@ def adaptive_scales(proxy_scores: np.ndarray, ranges: np.ndarray) -> np.ndarray:
     rank = np.argsort(np.argsort(-risk)) + 1
     transformed = 1.0 / np.sqrt(rank.astype(float))
     transformed = transformed / (transformed.max() + 1e-12)
-    base = ranges / EPSILON
+    base = ranges / MAX_EPSILON
     return base * (0.02 + (0.30 - 0.02) * transformed)
 
 
@@ -437,7 +437,7 @@ def run_dataset(ds: PreparedDataset) -> list[dict[str, Any]]:
 
     name_to_idx = {name: i for i, name in enumerate(feature_names)}
     ranges = feature_ranges(X_train)
-    uniform_scales = ranges / EPSILON
+    uniform_scales = ranges / MAX_EPSILON
     _, _, uniform_abs_noise = perturb(X_train, X_test, uniform_scales, 10)
 
     rows: list[dict[str, Any]] = []
@@ -454,7 +454,7 @@ def run_dataset(ds: PreparedDataset) -> list[dict[str, Any]]:
             {
                 "dataset": ds.display_name,
                 "sensitive_attribute": ds.sensitive_name,
-                "epsilon": EPSILON,
+                "epsilon": MAX_EPSILON,
                 "selected_k": selected_k,
                 "perturbed_features": ";".join(perturbed_features),
                 "noise_added_percent": noise_pct,
