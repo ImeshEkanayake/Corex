@@ -213,7 +213,7 @@ def perturb(X_train: np.ndarray, X_test: np.ndarray, scales: np.ndarray, seed: i
     return X_train + train_noise, X_test + test_noise, float(np.abs(train_noise).sum() + np.abs(test_noise).sum())
 
 
-def run_proxy_audit(dataset_key: str, output_dir: Path, data_root: Path | None = None) -> None:
+def run_proxy_audit(dataset_key: str, output_dir: Path, data_root: Path | None = None, method: str | None = None) -> None:
     config = DATASETS[dataset_key]
     setup_logging(output_dir, f"{dataset_key}_proxy_audit")
     X, y, A, sensitive_name = load_dataset(config, data_root=data_root)
@@ -239,6 +239,13 @@ def run_proxy_audit(dataset_key: str, output_dir: Path, data_root: Path | None =
     }
     rankings["COREX-Least-Core"] = rankings["COREX-Banzhaf"].copy()
     rankings["COREX-Nucleolus"] = rankings["COREX-Banzhaf"].copy()
+    if method is not None:
+        wanted = {
+            "lime": {"LIME"},
+            "shap": {"SHAP"},
+            "corex": {"COREX-Banzhaf", "COREX-Least-Core", "COREX-Nucleolus"},
+        }[method]
+        rankings = {name: value for name, value in rankings.items() if name in wanted}
 
     file_names = {
         "LIME": "lime_ranking.csv",
@@ -268,7 +275,7 @@ def run_proxy_audit(dataset_key: str, output_dir: Path, data_root: Path | None =
     logging.info("%s proxy audit complete, sensitive=%s", config.display_name, sensitive_name)
 
 
-def run_privacy_utility(dataset_key: str, output_dir: Path, data_root: Path | None = None) -> None:
+def run_privacy_utility(dataset_key: str, output_dir: Path, data_root: Path | None = None, method: str | None = None) -> None:
     config = DATASETS[dataset_key]
     setup_logging(output_dir, f"{dataset_key}_privacy_utility")
     X, y, A, sensitive_name = load_dataset(config, data_root=data_root)
@@ -293,14 +300,25 @@ def run_privacy_utility(dataset_key: str, output_dir: Path, data_root: Path | No
     _, _, uniform_abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED)
     rows = [evaluate(split["X_train"], split["X_test"], split, "No Privacy")]
 
-    Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED + 1)
-    uniform_row = evaluate(Xtr, Xte, split, "Uniform Perturbation")
-    uniform_row.update({"selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
-    rows.append(uniform_row)
+    if method in {None, "uniform"}:
+        Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED + 1)
+        uniform_row = evaluate(Xtr, Xte, split, "Uniform Perturbation")
+        uniform_row.update({"selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
+        rows.append(uniform_row)
 
     no_priv = rows[0]
     name_to_idx = {name: i for i, name in enumerate(split["feature_names"])}
-    for method, ranking in rankings.items():
+    if method is None:
+        method_filter = set(rankings)
+    else:
+        method_filter = {
+            "lime": {"LIME-Targeted"},
+            "shap": {"SHAP-Targeted"},
+            "corex_targeted": {"COREX-Targeted"},
+        }.get(method, set())
+    for method_name, ranking in rankings.items():
+        if method_name not in method_filter:
+            continue
         candidates = []
         for k in TOP_K_CANDIDATES:
             selected = ranking["feature"].head(k).tolist()
@@ -308,7 +326,7 @@ def run_privacy_utility(dataset_key: str, output_dir: Path, data_root: Path | No
             cols = [name_to_idx[name] for name in selected]
             scales[cols] = uniform_scales[cols]
             Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], scales, RANDOM_SEED + 10 + k)
-            result = evaluate(Xtr, Xte, split, method)
+            result = evaluate(Xtr, Xte, split, method_name)
             score = result["task_auc"] - 0.75 * result["attack_auc"] - 0.25 * result["dp_gap"] - 0.25 * result["eo_gap"] - 0.001 * k
             candidates.append((score, k, result, selected, abs_noise))
         candidates.sort(key=lambda item: (-item[0], item[1]))
@@ -322,16 +340,17 @@ def run_privacy_utility(dataset_key: str, output_dir: Path, data_root: Path | No
         )
         rows.append(result)
 
-    corex_rank = rankings["COREX-Targeted"]
-    risk = corex_rank.set_index("feature")["score"].reindex(split["feature_names"]).fillna(0).to_numpy()
-    order = np.argsort(np.argsort(-risk)) + 1
-    transformed = 1.0 / np.sqrt(order.astype(float))
-    transformed = transformed / (transformed.max() + 1e-12)
-    adaptive_scales = uniform_scales * (0.02 + (0.30 - 0.02) * transformed)
-    Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], adaptive_scales, RANDOM_SEED + 99)
-    adaptive_row = evaluate(Xtr, Xte, split, "COREX-Adaptive Optimized")
-    adaptive_row.update({"selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
-    rows.append(adaptive_row)
+    if method in {None, "corex_adaptive"}:
+        corex_rank = rankings["COREX-Targeted"]
+        risk = corex_rank.set_index("feature")["score"].reindex(split["feature_names"]).fillna(0).to_numpy()
+        order = np.argsort(np.argsort(-risk)) + 1
+        transformed = 1.0 / np.sqrt(order.astype(float))
+        transformed = transformed / (transformed.max() + 1e-12)
+        adaptive_scales = uniform_scales * (0.02 + (0.30 - 0.02) * transformed)
+        Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], adaptive_scales, RANDOM_SEED + 99)
+        adaptive_row = evaluate(Xtr, Xte, split, "COREX-Adaptive Optimized")
+        adaptive_row.update({"selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
+        rows.append(adaptive_row)
 
     table = pd.DataFrame(rows)
     table.insert(0, "dataset", config.display_name)
@@ -348,13 +367,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run COREX tabular proxy/privacy experiments.")
     parser.add_argument("--dataset", choices=sorted(DATASETS), required=True)
     parser.add_argument("--task", choices=["proxy_audit", "privacy_utility"], required=True)
+    parser.add_argument(
+        "--method",
+        choices=["lime", "shap", "corex", "uniform", "corex_targeted", "corex_adaptive"],
+        default=None,
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, default=None)
     args = parser.parse_args()
     if args.task == "proxy_audit":
-        run_proxy_audit(args.dataset, args.output_dir, data_root=args.data_root)
+        run_proxy_audit(args.dataset, args.output_dir, data_root=args.data_root, method=args.method)
     else:
-        run_privacy_utility(args.dataset, args.output_dir, data_root=args.data_root)
+        run_privacy_utility(args.dataset, args.output_dir, data_root=args.data_root, method=args.method)
 
 
 if __name__ == "__main__":
