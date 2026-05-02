@@ -19,6 +19,7 @@ from sklearn.preprocessing import StandardScaler
 RANDOM_SEED = 42
 TEST_SIZE = 0.2
 MAX_EPSILON = 0.1
+PRIVACY_BUDGETS = [10, 5, 1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
 TOP_K_CANDIDATES = range(1, 21)
 
 
@@ -296,67 +297,72 @@ def run_privacy_utility(dataset_key: str, output_dir: Path, data_root: Path | No
         ranking.to_csv(ranking_dir / f"{name.lower().replace('-', '_')}_ranking.csv", index=False)
 
     ranges = feature_ranges(split["X_train"])
-    uniform_scales = ranges / MAX_EPSILON
-    _, _, uniform_abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED)
-    rows = [evaluate(split["X_train"], split["X_test"], split, "No Privacy")]
-
-    if method in {None, "uniform"}:
-        Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED + 1)
-        uniform_row = evaluate(Xtr, Xte, split, "Uniform Perturbation")
-        uniform_row.update({"selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
-        rows.append(uniform_row)
-
-    no_priv = rows[0]
+    rows = []
+    no_priv_template = evaluate(split["X_train"], split["X_test"], split, "No Privacy")
     name_to_idx = {name: i for i, name in enumerate(split["feature_names"])}
-    if method is None:
-        method_filter = set(rankings)
-    else:
-        method_filter = {
-            "lime": {"LIME-Targeted"},
-            "shap": {"SHAP-Targeted"},
-            "corex_targeted": {"COREX-Targeted"},
-        }.get(method, set())
-    for method_name, ranking in rankings.items():
-        if method_name not in method_filter:
-            continue
-        candidates = []
-        for k in TOP_K_CANDIDATES:
-            selected = ranking["feature"].head(k).tolist()
-            scales = np.zeros(len(split["feature_names"]))
-            cols = [name_to_idx[name] for name in selected]
-            scales[cols] = uniform_scales[cols]
-            Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], scales, RANDOM_SEED + 10 + k)
-            result = evaluate(Xtr, Xte, split, method_name)
-            score = result["task_auc"] - 0.75 * result["attack_auc"] - 0.25 * result["dp_gap"] - 0.25 * result["eo_gap"] - 0.001 * k
-            candidates.append((score, k, result, selected, abs_noise))
-        candidates.sort(key=lambda item: (-item[0], item[1]))
-        _, k, result, selected, abs_noise = candidates[0]
-        result.update(
-            {
-                "selected_k": k,
-                "perturbed_features": ";".join(selected),
-                "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise,
-            }
-        )
-        rows.append(result)
+    for epsilon in PRIVACY_BUDGETS:
+        uniform_scales = ranges / epsilon
+        _, _, uniform_abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED)
+        no_priv = dict(no_priv_template)
+        no_priv.update({"privacy_budget": epsilon, "selected_k": "N/A", "noise_added_percent": 0.0})
+        rows.append(no_priv)
 
-    if method in {None, "corex_adaptive"}:
-        corex_rank = rankings["COREX-Targeted"]
-        risk = corex_rank.set_index("feature")["score"].reindex(split["feature_names"]).fillna(0).to_numpy()
-        order = np.argsort(np.argsort(-risk)) + 1
-        transformed = 1.0 / np.sqrt(order.astype(float))
-        transformed = transformed / (transformed.max() + 1e-12)
-        adaptive_scales = uniform_scales * (0.02 + (0.30 - 0.02) * transformed)
-        Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], adaptive_scales, RANDOM_SEED + 99)
-        adaptive_row = evaluate(Xtr, Xte, split, "COREX-Adaptive Optimized")
-        adaptive_row.update({"selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
-        rows.append(adaptive_row)
+        if method in {None, "uniform"}:
+            Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], uniform_scales, RANDOM_SEED + 1)
+            uniform_row = evaluate(Xtr, Xte, split, "Uniform Perturbation")
+            uniform_row.update({"privacy_budget": epsilon, "selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
+            rows.append(uniform_row)
+
+        if method is None:
+            method_filter = set(rankings)
+        else:
+            method_filter = {
+                "lime": {"LIME-Targeted"},
+                "shap": {"SHAP-Targeted"},
+                "corex_targeted": {"COREX-Targeted"},
+            }.get(method, set())
+        for method_name, ranking in rankings.items():
+            if method_name not in method_filter:
+                continue
+            candidates = []
+            for k in TOP_K_CANDIDATES:
+                selected = ranking["feature"].head(k).tolist()
+                scales = np.zeros(len(split["feature_names"]))
+                cols = [name_to_idx[name] for name in selected]
+                scales[cols] = uniform_scales[cols]
+                Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], scales, RANDOM_SEED + 10 + k)
+                result = evaluate(Xtr, Xte, split, method_name)
+                score = result["task_auc"] - 0.75 * result["attack_auc"] - 0.25 * result["dp_gap"] - 0.25 * result["eo_gap"] - 0.001 * k
+                candidates.append((score, k, result, selected, abs_noise))
+            candidates.sort(key=lambda item: (-item[0], item[1]))
+            _, k, result, selected, abs_noise = candidates[0]
+            result.update(
+                {
+                    "privacy_budget": epsilon,
+                    "selected_k": k,
+                    "perturbed_features": ";".join(selected),
+                    "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise,
+                }
+            )
+            rows.append(result)
+
+        if method in {None, "corex_adaptive"}:
+            corex_rank = rankings["COREX-Targeted"]
+            risk = corex_rank.set_index("feature")["score"].reindex(split["feature_names"]).fillna(0).to_numpy()
+            order = np.argsort(np.argsort(-risk)) + 1
+            transformed = 1.0 / np.sqrt(order.astype(float))
+            transformed = transformed / (transformed.max() + 1e-12)
+            adaptive_scales = uniform_scales * (0.02 + (0.30 - 0.02) * transformed)
+            Xtr, Xte, abs_noise = perturb(split["X_train"], split["X_test"], adaptive_scales, RANDOM_SEED + 99)
+            adaptive_row = evaluate(Xtr, Xte, split, "COREX-Adaptive Optimized")
+            adaptive_row.update({"privacy_budget": epsilon, "selected_k": "all", "noise_added_percent": 100.0 * abs_noise / uniform_abs_noise})
+            rows.append(adaptive_row)
 
     table = pd.DataFrame(rows)
     table.insert(0, "dataset", config.display_name)
     table.insert(1, "sensitive_attribute", sensitive_name)
     table.to_csv(table_dir / "table2_privacy_utility.csv", index=False)
-    paper = table[["dataset", "method", "selected_k", "task_auc", "attack_auc", "dp_gap", "eo_gap", "noise_added_percent"]].copy()
+    paper = table[["dataset", "privacy_budget", "method", "selected_k", "task_auc", "attack_auc", "dp_gap", "eo_gap", "noise_added_percent"]].copy()
     for col in ["task_auc", "attack_auc", "dp_gap", "eo_gap", "noise_added_percent"]:
         paper[col] = paper[col].map(lambda value: f"{value:.3f}" if isinstance(value, (float, int)) else value)
     paper.to_csv(table_dir / "table2_privacy_utility_paper_ready.csv", index=False)

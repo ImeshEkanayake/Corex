@@ -60,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ranking-source-dir", type=Path, default=REPO_ROOT / "Paper Experiemnts" / "give_me_some_credit_corex" / "outputs" / "rankings")
     parser.add_argument("--base-noise-scale", type=float, default=0.10)
     parser.add_argument("--robustness-scales", type=float, nargs="*", default=[0.05, 0.10, 0.20])
-    parser.add_argument("--dp-privacy-budgets", type=float, nargs="*", default=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5])
+    parser.add_argument("--dp-privacy-budgets", type=float, nargs="*", default=[10, 5, 1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001])
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--test-size", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=SEED)

@@ -57,7 +57,7 @@ METHOD_ORDER = [
     "COREX-Adaptive Original",
     "COREX-Adaptive Optimized",
 ]
-PRIVACY_BUDGETS = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5]
+PRIVACY_BUDGETS = [10, 5, 1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 EXPERIMENT_DIR = SCRIPT_DIR.parent

@@ -30,6 +30,7 @@ except Exception:  # pragma: no cover - optional runtime fallback is logged.
 
 RANDOM_SEED = 42
 MAX_EPSILON = 0.1
+PRIVACY_BUDGETS = [10, 5, 1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
 TOP_K = 5
 MAX_TUNED_K = 20
 TEST_SIZE = 0.2

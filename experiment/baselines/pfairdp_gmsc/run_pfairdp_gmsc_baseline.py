@@ -38,7 +38,7 @@ EXPECTED_COLUMNS = [
     "NumberOfTime60-89DaysPastDueNotWorse",
     "NumberOfDependents",
 ]
-PRIVACY_BUDGETS = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5]
+PRIVACY_BUDGETS = [10, 5, 1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]
 
 
 @dataclass
