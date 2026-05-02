@@ -1,0 +1,143 @@
+device=0
+
+# Data
+data="adult"
+dmode="none"
+data_path="Data/"
+rat=-1
+
+# General
+gmode="fairdp"
+pname="${data}-${gmode}"
+model_path="results/models/"
+res_path="results/dict/"
+
+# Model
+model=NN
+lr=0.007
+bs=256
+nhid=8
+nlay=2
+opt="adam"
+epochs=5
+dout=0.0
+debug=0
+
+#DP
+srate=0.01
+cgrad=1.0
+n_mo=5
+# clay=0.85
+ns=1.0
+epsilon=1.0
+
+for clay in 0.25 0.5 0.75 1.0
+do
+    pname="${data}-${gmode}-eps-${epsilon}-clay-${clay}"
+    for run in 1 2 3 4 5
+    do
+        CUDA_VISIBLE_DEVICES=$device python main.py --pname $pname \
+            --data $data \
+            --gmode $gmode \
+            --model_path $model_path \
+            --res_path $res_path \
+            --data_path $data_path \
+            --dmode $dmode \
+            --rat $rat \
+            --model $model \
+            --lr $lr \
+            --bs $bs \
+            --nhid $nhid \
+            --nlay $nlay \
+            --opt $opt \
+            --epochs $epochs \
+            --dout $dout \
+            --epsilon $epsilon \
+            --cgrad $cgrad \
+            --srate $srate \
+            --ns $ns \
+            --n_mo $n_mo \
+            --clay $clay \
+            --debug $debug \
+            --seed $run 
+    done
+done
+
+
+
+# Data
+data="ccc"
+# clay=0.65
+
+for clay in 0.25 0.5 0.75 1.0
+do
+    pname="${data}-${gmode}-eps-${epsilon}-clay-${clay}"
+    for run in 1 2 3 4 5
+    do
+        CUDA_VISIBLE_DEVICES=$device python main.py --pname $pname \
+            --data $data \
+            --gmode $gmode \
+            --model_path $model_path \
+            --res_path $res_path \
+            --data_path $data_path \
+            --dmode $dmode \
+            --rat $rat \
+            --model $model \
+            --lr $lr \
+            --bs $bs \
+            --nhid $nhid \
+            --nlay $nlay \
+            --opt $opt \
+            --epochs $epochs \
+            --dout $dout \
+            --epsilon $epsilon \
+            --cgrad $cgrad \
+            --srate $srate \
+            --ns $ns \
+            --n_mo $n_mo \
+            --clay $clay \
+            --debug $debug \
+            --seed $run 
+    done
+done
+
+device=0
+
+# Data
+data="utk"
+model=CNN
+lr=0.007
+# clay=0.65
+
+
+for clay in 0.25 0.5 0.75 1.0
+do
+    pname="${data}-${gmode}-eps-${epsilon}-clay-${clay}"
+    for run in 1 2 3 4 5
+    do
+        CUDA_VISIBLE_DEVICES=$device python main.py --pname $pname \
+            --data $data \
+            --gmode $gmode \
+            --model_path $model_path \
+            --res_path $res_path \
+            --data_path $data_path \
+            --dmode $dmode \
+            --rat $rat \
+            --model $model \
+            --lr $lr \
+            --bs $bs \
+            --nhid $nhid \
+            --nlay $nlay \
+            --opt $opt \
+            --epochs $epochs \
+            --dout $dout \
+            --epsilon $epsilon \
+            --cgrad $cgrad \
+            --srate $srate \
+            --ns $ns \
+            --n_mo $n_mo \
+            --clay $clay \
+            --debug $debug \
+            --seed $run 
+    done
+done
