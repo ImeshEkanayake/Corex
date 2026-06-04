@@ -199,10 +199,12 @@ class ProxyAuditReport:
             attribute_summaries[name] = {
                 "available_modes": self.available_modes(name),
                 "epsilon": self.epsilon(name),
+                "local_fairness_risk": self.local_fairness_risk(name),
                 "top_proxy_coalitions": self.top_proxy_coalitions(name),
                 "mode_summaries": {
                     mode: {
                         "epsilon": report.epsilon,
+                        "local_fairness_risk": self.local_fairness_risk(name, mode=mode),
                         "dataset_summary": report.metadata.get("dataset_summary"),
                         "top_proxy_coalitions": self.top_proxy_coalitions(name, mode=mode),
                     }
@@ -239,6 +241,17 @@ class ProxyAuditReport:
 
     def epsilon(self, attribute_name: str, mode: str | None = None) -> float | None:
         return self._attribute_report(attribute_name, mode=mode).epsilon
+
+    def local_fairness_risk(self, attribute_name: str, mode: str | None = None) -> float | None:
+        details = self.local_fairness_risk_details(attribute_name, mode=mode)
+        if details is None:
+            return None
+        return float(details["lfr"])
+
+    def local_fairness_risk_details(self, attribute_name: str, mode: str | None = None) -> dict[str, Any] | None:
+        report = self._attribute_report(attribute_name, mode=mode)
+        details = report.metadata.get("local_fairness_risk")
+        return dict(details) if isinstance(details, dict) else None
 
     def available_modes(self, attribute_name: str) -> list[str]:
         return sorted(self._attribute_modes(attribute_name))

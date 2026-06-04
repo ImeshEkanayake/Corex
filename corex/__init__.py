@@ -23,6 +23,12 @@ from corex.games.value_functions import (
 from corex.solvers.core import CoreSolver
 from corex.solvers.least_core import LeastCoreSolver
 from corex.utils.explanation import ExplanationResult, ProxyAuditReport
+from corex.utils.fairness import (
+    compute_local_fairness_risk,
+    mask_proxy_features,
+    predictive_nucleolus_allocation,
+    resolve_proxy_feature_indices,
+)
 from corex.utils.validation import (
     ALPHA_RELEASE_ITEMS,
     compare_explainers,
@@ -55,8 +61,12 @@ __all__ = [
     "ALPHA_RELEASE_ITEMS",
     "benchmark_explainer",
     "compare_explainers",
+    "compute_local_fairness_risk",
     "compute_coalition_interactions",
+    "mask_proxy_features",
+    "predictive_nucleolus_allocation",
     "release_gate_status",
+    "resolve_proxy_feature_indices",
     "summarize_coalitions_by_size",
     "validate_game_definition",
 ]

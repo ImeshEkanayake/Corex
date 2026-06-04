@@ -12,6 +12,7 @@ from corex.games.game_theory import CooperativeGame, GameTheoreticScorer, summar
 from corex.games.value_functions import AblationValueFunction, ProxyValueFunction
 from corex.utils.background import resolve_baseline
 from corex.utils.explanation import ExplanationResult, ProxyAuditReport
+from corex.utils.fairness import compute_local_fairness_risk
 from corex.utils.predictors import resolve_batch_predictor, resolve_scalar_predictor
 
 DEFAULT_PROXY_MAX_COALITION_SIZE = 3
@@ -89,6 +90,30 @@ class ProxyAuditor:
 
     def _resolve_evaluation_mode(self, evaluation_mode: str | None) -> str:
         return evaluation_mode or self.default_evaluation_mode
+
+    def _select_lfr_proxy_features(
+        self,
+        result: ExplanationResult,
+        feature_names: list[str],
+        top_k: int,
+    ) -> list[str]:
+        scores = result.banzhaf_scores
+        if scores is None:
+            raise ValueError("Cannot infer LFR proxy features because the proxy result has no Banzhaf scores.")
+        order = np.argsort(np.abs(np.asarray(scores, dtype=float)))[::-1]
+        return [feature_names[int(index)] for index in order[: int(top_k)]]
+
+    def _resolve_lfr_proxy_features(
+        self,
+        proxy_features: dict[str, list[str | int]] | list[str | int] | tuple[str | int, ...] | None,
+        attribute_name: str,
+    ) -> list[str | int] | None:
+        if proxy_features is None:
+            return None
+        if isinstance(proxy_features, dict):
+            features = proxy_features.get(attribute_name)
+            return None if features is None else list(features)
+        return list(proxy_features)
 
     def _resolve_scorer(self, threshold: float | None = None) -> GameTheoreticScorer:
         if threshold is None or threshold == self.threshold:
@@ -475,6 +500,26 @@ class ProxyAuditor:
             metadata={"attribute_name": attribute_name, "coalition_size_summary": coalition_summary, "audit_scope": "local"},
         )
 
+    def compute_local_fairness_risk(
+        self,
+        instance,
+        proxy_features,
+        feature_names=None,
+        *,
+        normalize: bool = True,
+    ) -> dict[str, Any]:
+        feature_names = list(feature_names or self.default_feature_names or [])
+        if not feature_names:
+            feature_names = [f"x{index}" for index in range(len(instance))]
+        return compute_local_fairness_risk(
+            self.predictor,
+            instance,
+            proxy_features,
+            feature_names=feature_names,
+            baseline=self.baseline,
+            normalize=normalize,
+        )
+
     def _build_dataset_proxy_result(
         self,
         dataset,
@@ -630,6 +675,9 @@ class ProxyAuditor:
         sensitive_attrs: dict[str, Any] | None = None,
         threshold: float | None = None,
         assume_thread_safe: bool | None = None,
+        compute_lfr: bool = False,
+        lfr_proxy_features: dict[str, list[str | int]] | list[str | int] | tuple[str | int, ...] | None = None,
+        lfr_top_k: int | None = None,
     ) -> ProxyAuditReport:
         if instance is None:
             raise ValueError("audit requires instance=...")
@@ -666,6 +714,7 @@ class ProxyAuditor:
             "proxy_predictor_attributes": sorted(proxy_predictors),
             "audit_scope": "local",
         }
+        lfr_metadata: dict[str, Any] = {}
         for attribute_name, proxy_target in sensitive_attributes.items():
             proxy_target = self._validate_local_proxy_target(attribute_name, proxy_target)
             attribute_proxy_predictor = proxy_predictors.get(attribute_name)
@@ -681,6 +730,17 @@ class ProxyAuditor:
                     scorer=scorer,
                     proxy_predictor=attribute_proxy_predictor,
                 )
+                if compute_lfr:
+                    selected_features = self._resolve_lfr_proxy_features(lfr_proxy_features, attribute_name)
+                    if selected_features is None:
+                        selected_features = self._select_lfr_proxy_features(
+                            reports[attribute_name],
+                            list(feature_names),
+                            int(lfr_top_k or resolved_top_k),
+                        )
+                    lfr_details = self.compute_local_fairness_risk(instance, selected_features, feature_names)
+                    reports[attribute_name].metadata["local_fairness_risk"] = lfr_details
+                    lfr_metadata[attribute_name] = lfr_details
                 report_metadata["coalition_size_analysis"][attribute_name] = reports[attribute_name].metadata["coalition_size_summary"]
             elif evaluation_mode == "ablation":
                 reports[attribute_name] = self._build_ablation_result(
@@ -714,6 +774,17 @@ class ProxyAuditor:
                     resolved_top_k,
                     scorer=scorer,
                 )
+                if compute_lfr:
+                    selected_features = self._resolve_lfr_proxy_features(lfr_proxy_features, attribute_name)
+                    if selected_features is None:
+                        selected_features = self._select_lfr_proxy_features(
+                            proxy_result,
+                            list(feature_names),
+                            int(lfr_top_k or resolved_top_k),
+                        )
+                    lfr_details = self.compute_local_fairness_risk(instance, selected_features, feature_names)
+                    proxy_result.metadata["local_fairness_risk"] = lfr_details
+                    lfr_metadata[attribute_name] = lfr_details
                 reports[attribute_name] = {
                     "proxy_model": proxy_result,
                     "ablation": ablation_result,
@@ -753,6 +824,17 @@ class ProxyAuditor:
                     )
                     proxy_result = proxy_future.result()
                     ablation_result = ablation_future.result()
+                if compute_lfr:
+                    selected_features = self._resolve_lfr_proxy_features(lfr_proxy_features, attribute_name)
+                    if selected_features is None:
+                        selected_features = self._select_lfr_proxy_features(
+                            proxy_result,
+                            list(feature_names),
+                            int(lfr_top_k or resolved_top_k),
+                        )
+                    lfr_details = self.compute_local_fairness_risk(instance, selected_features, feature_names)
+                    proxy_result.metadata["local_fairness_risk"] = lfr_details
+                    lfr_metadata[attribute_name] = lfr_details
                 reports[attribute_name] = {
                     "proxy_model": proxy_result,
                     "ablation": ablation_result,
@@ -763,6 +845,8 @@ class ProxyAuditor:
                 }
             else:
                 raise ValueError(f"Unsupported evaluation_mode: {evaluation_mode}")
+        if lfr_metadata:
+            report_metadata["local_fairness_risk"] = lfr_metadata
         return ProxyAuditReport(evaluation_mode=evaluation_mode, attribute_reports=reports, metadata=report_metadata)
 
     def audit_dataset(
